@@ -1,0 +1,367 @@
+-- presentacion: https://www.canva.com/design/DAG4DhUKkfk/fD4aw3K8_IT3vc3glASkeg/edit?utm_content=DAG4DhUKkfk&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton
+
+
+
+SET SERVEROUTPUT ON;
+
+-- gestor de notas
+
+-- ejecutar por separado----------------------------------------------------------
+
+-- borrar todo || deben existir lo que se va a borrar
+
+DROP TRIGGER trg_validar_nota; -- elimina el trigger que valida la nota
+
+DROP TRIGGER trg_auditoria_nota; -- elimina el trigger de auditoría
+
+DROP PACKAGE pkg_notas; -- elimina el package de notas completo
+
+DROP TABLE nota CASCADE CONSTRAINTS; -- elimina la tabla nota y sus restricciones
+
+DROP TABLE asignatura CASCADE CONSTRAINTS; -- elimina la tabla asignatura
+
+DROP TABLE estudiante CASCADE CONSTRAINTS; -- elimina la tabla estudiante
+
+
+
+--crear tablas
+
+CREATE TABLE estudiante ( -- crea tabla estudiante
+
+ id_estudiante NUMBER PRIMARY KEY, -- clave primaria, sin repetición
+
+ nombre    VARCHAR2(50) NOT NULL, -- nombre obligatorio
+
+ apellido   VARCHAR2(50), -- apellido opcional
+
+ curso     VARCHAR2(10) -- curso del estudiante
+
+);
+
+
+
+CREATE TABLE asignatura ( -- tabla de asignaturas disponibles
+
+ id_asignatura NUMBER PRIMARY KEY, -- clave primaria
+
+ nombre_asignatura VARCHAR2(50) NOT NULL -- nombre obligatorio de la asignatura
+
+);
+
+
+
+CREATE TABLE nota ( -- tabla de notas
+
+ id_nota    NUMBER PRIMARY KEY, -- identificador único de nota
+
+ id_estudiante NUMBER NOT NULL, -- relaciona con un estudiante existente
+
+ id_asignatura NUMBER NOT NULL, -- relaciona con la asignatura
+
+ nota     NUMBER(2,1), -- notas con 1 decimal, ej: 6.0
+
+ CONSTRAINT fk_nota_est FOREIGN KEY (id_estudiante) REFERENCES estudiante(id_estudiante), -- FK estudiante
+
+ CONSTRAINT fk_nota_asig FOREIGN KEY (id_asignatura) REFERENCES asignatura(id_asignatura), -- FK asignatura
+
+ CONSTRAINT uq_nota UNIQUE (id_estudiante, id_asignatura)); -- no puede haber dos notas en la misma asignatura para el mismo estudiante);
+
+
+
+-- datos
+
+INSERT INTO estudiante VALUES (1, 'María', 'González', '1°A'); -- agrega estudiante 1
+
+INSERT INTO estudiante VALUES (2, 'Pedro', 'López', '1°A'); -- agrega estudiante 2
+
+INSERT INTO estudiante VALUES (3, 'Ana', 'Fuentes', '1°B'); -- agrega estudiante 3
+
+
+
+INSERT INTO asignatura VALUES (1, 'Matemáticas'); -- agrega rama matemáticas
+
+INSERT INTO asignatura VALUES (2, 'Lenguaje'); -- agrega lenguaje
+
+INSERT INTO asignatura VALUES (3, 'Historia'); -- agrega historia
+
+
+
+INSERT INTO nota VALUES (1, 1, 1, 6.0); -- nota María matemáticas
+
+INSERT INTO nota VALUES (2, 1, 2, 5.5); -- nota María lenguaje
+
+INSERT INTO nota VALUES (3, 2, 1, 4.0); -- nota Pedro matemáticas
+
+INSERT INTO nota VALUES (4, 3, 3, 6.5); -- nota Ana historia
+
+COMMIT; -- guarda los cambios en BD
+
+-- ejecutar por separado----------------------------------------------------------
+
+
+
+
+
+-- trigger que valida el rango de la nota
+
+CREATE OR REPLACE TRIGGER trg_validar_nota -- se crea o reemplaza el trigger
+
+BEFORE INSERT OR UPDATE ON nota -- se ejecuta antes de insertar o actualizar
+
+FOR EACH ROW -- se revisa fila por fila
+
+BEGIN -- inicio del bloque PL/SQL
+
+ IF :NEW.nota < 1.0 OR :NEW.nota > 7.0 THEN -- si la nueva nota está fuera del rango permitido
+
+  RAISE_APPLICATION_ERROR(-20001, 'La nota debe estar entre 1.0 y 7.0'); -- muestra error personalizado
+
+ END IF; -- cierra el if
+
+END; -- fin del trigger
+
+-- ejecutar por separado----------------------------------------------------------
+
+
+
+
+
+-- trigger que detecta cambios en las notas
+
+CREATE OR REPLACE TRIGGER trg_auditoria_nota -- crea o reemplaza el trigger de auditoría
+
+AFTER INSERT OR UPDATE OR DELETE ON nota -- se ejecuta después de que pase un cambio
+
+BEGIN -- inicio del bloque
+
+ DBMS_OUTPUT.PUT_LINE('Se realizó un cambio en la tabla NOTA.'); -- informa en consola el cambio
+
+END; -- fin del trigger
+
+-- ejecutar por separado----------------------------------------------------------
+
+
+
+
+
+-- package
+
+CREATE OR REPLACE PACKAGE pkg_notas AS -- se crea un package (cabecera)
+
+ PROCEDURE registrar_nota(p_id_nota NUMBER, p_id_est NUMBER, p_id_asig NUMBER, p_nota NUMBER); -- procedimiento con parámetros
+
+ PROCEDURE mostrar_notas; -- procedimiento sin parámetros que muestra todas las notas
+
+ FUNCTION promedio_estudiante(p_id_est NUMBER) RETURN NUMBER; -- retorna el promedio de un estudiante
+
+ FUNCTION contar_aprobados RETURN NUMBER; -- retorna conteo de notas aprobadas
+
+END pkg_notas; -- fin del package de notas
+
+
+
+-- ejecutar por separado----------------------------------------------------------
+
+
+
+
+
+-- package body
+
+CREATE OR REPLACE PACKAGE BODY pkg_notas AS -- implementación del package
+
+ v_min_aprobacion CONSTANT NUMBER := 4.0; -- constante privada que define nota mínima aprobada
+
+
+
+ PROCEDURE registrar_nota(p_id_nota NUMBER, p_id_est NUMBER, p_id_asig NUMBER, p_nota NUMBER) IS -- procedimiento para registrar una nota
+
+ BEGIN
+
+  INSERT INTO nota (id_nota, id_estudiante, id_asignatura, nota)
+
+  VALUES (p_id_nota, p_id_est, p_id_asig, p_nota); -- inserta la nota
+
+ END; -- fin del procedimiento
+
+  
+
+ PROCEDURE mostrar_notas IS -- procedimiento para mostrar notas con cursor
+
+  CURSOR c_notas IS -- cursor que recorre notas de estudiantes
+
+   SELECT e.nombre || ' ' || e.apellido AS estudiante, --selecciona nombre y apellido con el alias estudiante
+
+       a.nombre_asignatura AS asignatura, -- lo mismo con asignatura
+
+       n.nota --selecciona nota
+
+    FROM nota n
+
+    JOIN estudiante e ON n.id_estudiante = e.id_estudiante -- da los nombrea ppara conectar
+
+    JOIN asignatura a ON n.id_asignatura = a.id_asignatura
+
+   ORDER BY e.id_estudiante; -- ordenadas por estudiante
+
+  v_reg c_notas%ROWTYPE; -- variable tipo registro del cursor
+
+ BEGIN
+
+  OPEN c_notas; -- abre cursor
+
+  LOOP -- comienza el ciclo
+
+   FETCH c_notas INTO v_reg; -- guarda la fila en la variable
+
+   EXIT WHEN c_notas%NOTFOUND; -- sale cuando no hay más filas
+
+   DBMS_OUTPUT.PUT_LINE(v_reg.estudiante || ' - ' ||
+
+              v_reg.asignatura || ': ' || v_reg.nota); -- imprime datos por pantalla
+
+  END LOOP; -- termina el loop
+
+  CLOSE c_notas; -- cierra cursor
+
+ END; -- fin del procedimiento
+
+  
+
+ FUNCTION promedio_estudiante(p_id_est NUMBER) RETURN NUMBER IS -- función para calcular promedio
+
+  v_prom NUMBER; -- variable para guardar el promedio
+
+ BEGIN
+
+  SELECT ROUND(AVG(nota),1) INTO v_prom FROM nota WHERE id_estudiante = p_id_est; -- saca el promedio del estudiante
+
+  RETURN NVL(v_prom, 0); -- si es null (no tiene notas), retorna 0
+
+ END; -- fin función
+
+
+
+ FUNCTION contar_aprobados RETURN NUMBER IS -- función sin parámetros
+
+  v_total NUMBER; -- variable de almacenamiento
+
+ BEGIN
+
+  SELECT COUNT(*) INTO v_total FROM nota WHERE nota >= v_min_aprobacion; -- cuenta notas >= 4.0
+
+  RETURN NVL(v_total, 0); -- retorna total aprobado
+
+ END; -- fin función
+
+
+
+ -- bloque de inicialización del package (constructor)
+
+BEGIN
+
+ NULL; -- inicializador del package (constructor)
+
+END pkg_notas; -- fin del cuerpo del package
+
+-- ejecutar por separado----------------------------------------------------------
+
+
+
+
+
+-- ejecutar por separado----------------------------------------------------------
+
+-- mostrar las weas
+
+
+
+
+
+BEGIN -- bloque anónimo para ejecutar demostración
+
+ DBMS_OUTPUT.PUT_LINE('=== LISTA DE NOTAS ===');
+
+ pkg_notas.mostrar_notas; -- usa procedimiento del package
+
+
+
+DBMS_OUTPUT.PUT_LINE(CHR(10) || '--- PROMEDIOS POR ESTUDIANTE (por cursor) ---');
+
+
+
+DECLARE
+
+ CURSOR c_prom IS
+
+  SELECT id_estudiante, nombre || ' ' || apellido AS estudiante
+
+  FROM estudiante
+
+  ORDER BY id_estudiante;
+
+
+
+ v_id_estudiante estudiante.id_estudiante%TYPE;
+
+ v_nombre_estudiante VARCHAR2(50);
+
+ v_prom NUMBER;
+
+BEGIN
+
+ OPEN c_prom;
+
+ LOOP
+
+  FETCH c_prom INTO v_id_estudiante, v_nombre_estudiante;
+
+  EXIT WHEN c_prom%NOTFOUND;
+
+
+
+  v_prom := pkg_notas.promedio_estudiante(v_id_estudiante);
+
+
+
+  DBMS_OUTPUT.PUT_LINE(
+
+   v_nombre_estudiante || ' -> Promedio: ' || v_prom
+
+  );
+
+ END LOOP;
+
+ CLOSE c_prom;
+
+END;
+
+
+
+END; -- fin bloque
+
+select * from asignatura;
+
+
+
+BEGIN
+
+ pkg_notas.registrar_nota(5, 3, 1, 5.0);
+
+  
+
+END;
+
+BEGIN
+
+ DBMS_OUTPUT.PUT_LINE(pkg_notas.promedio_estudiante(1));
+
+  
+
+END;
+
+begin
+
+pkg_notas.mostrar_notas;
+
+end;
